@@ -1,0 +1,8 @@
+Changes
+GHash.pm
+MANIFEST
+Makefile.PL
+README
+bench.pl
+t/simple.t
+
