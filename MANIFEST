@@ -3,6 +3,7 @@ GHash.pm
 MANIFEST
 Makefile.PL
 README
-bench.pl
+examples/bench.pl
+examples/ghash.pl
+examples/perl.pl
 t/simple.t
-

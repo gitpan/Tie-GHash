@@ -5,8 +5,9 @@
 
 # change 'tests => 1' to 'tests => last_test_to_print';
 
+use strict;
 use Test;
-BEGIN { plan tests => 511 };
+BEGIN { plan tests => 516 };
 use Tie::GHash;
 ok(1); # If we made it this far, we're ok.
 
@@ -65,13 +66,30 @@ foreach my $i (1..100) {
   ok($h{"foo: $i"}, $j);
 }
 
-#tie my %h2, 'Tie::GHash';
-#my $name = "foobar";
-#ok($h2->size, 0);
-#foreach my $i (1..100) {
-#  $h2->insert($name++, $i * 2);
-#  ok($h2->size, $i);
-#}
+tie my %squares, 'Tie::GHash';
+foreach my $i (1..100) {
+  $squares{$i} = $i * 2;
+}
+
+my @foo = keys %squares;
+ok(1);
+
+my($sum, $geomsum);
+foreach my $k (keys %squares) {
+print "fooo!\n";
+  $sum += $k;
+  $geomsum += $squares{$k};
+}
+ok($sum, 5050);
+ok($geomsum, 10100);
+
+($sum, $geomsum) = (0, 0);
+while (my($key,$val) = each %squares) {
+  $sum += $key;
+  $geomsum += $val;
+}
+ok($sum, 5050);
+ok($geomsum, 10100);
 
 
 

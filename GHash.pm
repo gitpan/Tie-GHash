@@ -1,12 +1,12 @@
 package Tie::GHash;
 
 use strict;
-use warnings;
+use Tie::Hash;
 
 require Exporter;
 use vars qw(@ISA %EXPORT_TAGS @EXPORT_OK @EXPORT $VERSION);
 
-@ISA = qw(Exporter);
+@ISA = qw(Exporter Tie::Hash);
 
 # Items to export into callers namespace by default. Note: do not export
 # names by default without a very good reason. Use EXPORT_OK instead.
@@ -24,14 +24,14 @@ use vars qw(@ISA %EXPORT_TAGS @EXPORT_OK @EXPORT $VERSION);
 @EXPORT = qw(
 	
 );
-$VERSION = '0.10';
+$VERSION = '0.12';
 
 use Inline C => Config =>
   LIBS => `glib-config --libs`,
   INC => `glib-config --cflags`;
 
 use Inline C => 'DATA',
-  VERSION => '0.10',
+  VERSION => '0.12',
   NAME => 'Tie::GHash';
 
 
@@ -65,8 +65,10 @@ same way as you would use a normal Perl hash, with the exception that
 you need to C<tie> it before use as in the synopsis.
 
 For example, reading in a typical /usr/share/dict/words using Perl's
-built in hashes took up 8,672K. Doing the same with Tie::GHash took up
-7,212K, albeit about six times slower due to the tie interface.
+built in hashes took up 6,508K. Doing the same with Tie::GHash took up
+4,784K, albeit about six times slower due to the tie interface. [The
+size difference is mostly due to storing the actual key and value
+strings rather than an SV].
 
 =head1 NOTES
 
@@ -74,11 +76,6 @@ This module requires a recent version of the Inline library. This
 module was created during Brian Ingerson's Inline talk at
 YAPC::NorthAmerica 2001 when he asked me to code something fun using
 Inline, so blame him.
-
-=head1 BUGS
-
-FIRSTKEY and NEXTKEY are currently unimplemented, which means that
-C<foreach> will not work over such a hash. Patches welcome.
 
 =head1 AUTHOR
 
@@ -100,18 +97,30 @@ __DATA__
 __C__
 #include <glib.h>
 
+typedef struct {
+  GHashTable *h;
+  char **keys;
+  int nkeys;
+  int key_index;
+} Tie_GHash;
+
+
+
 SV* TIEHASH(char* class) {
-  GHashTable* h = g_hash_table_new(g_str_hash, g_str_equal);
   SV* obj_ref = newSViv(0);
   SV*     obj = newSVrv(obj_ref, class);
 
-  sv_setiv(obj, (IV)h);
+  Tie_GHash *t = malloc(sizeof(Tie_GHash));
+  t->keys = NULL;
+  t->h = g_hash_table_new(g_str_hash, g_str_equal);
+
+  sv_setiv(obj, (IV)t);
   SvREADONLY_on(obj);
   return obj_ref;
 }
 
 void STORE(SV* obj, char* key, char* value) {
-  GHashTable* h = (GHashTable*)SvIV(SvRV(obj));
+  GHashTable *h = ((Tie_GHash*)SvIV(SvRV(obj)))->h;
   char *old_key, *old_value;
 
   if (g_hash_table_lookup_extended(h, key, &old_key, &old_value)) {
@@ -125,22 +134,23 @@ void STORE(SV* obj, char* key, char* value) {
 }
 
 char* FETCH(SV* obj, char* key) {
-  GHashTable* h = (GHashTable*)SvIV(SvRV(obj));
+  GHashTable *h = ((Tie_GHash*)SvIV(SvRV(obj)))->h;
   return g_hash_table_lookup(h, key);
 }
 
 char* EXISTS(SV* obj, char* key) {
-  GHashTable* h = (GHashTable*)SvIV(SvRV(obj));
+  GHashTable *h = ((Tie_GHash*)SvIV(SvRV(obj)))->h;
   return g_hash_table_lookup(h, key);
 }
 
 int size(SV* obj) {
-  GHashTable* h = (GHashTable*)SvIV(SvRV(obj));
+  GHashTable *h = ((Tie_GHash*)SvIV(SvRV(obj)))->h;
   return g_hash_table_size(h);
 }
 
 void DELETE(SV* obj, char* key) {
-  GHashTable* h = (GHashTable*)SvIV(SvRV(obj));
+
+  GHashTable *h = ((Tie_GHash*)SvIV(SvRV(obj)))->h;
   char *old_key, *old_value;
 
   if (g_hash_table_lookup_extended(h, key, &old_key, &old_value)) {
@@ -156,15 +166,48 @@ static void free_a_hash_table_entry(gpointer key, gpointer value, gpointer user_
 }
 
 void CLEAR(SV* obj) {
-  GHashTable* h = (GHashTable*)SvIV(SvRV(obj));
+  GHashTable *h = ((Tie_GHash*)SvIV(SvRV(obj)))->h;
   g_hash_table_foreach(h, free_a_hash_table_entry, NULL);
 }
 
 void DESTROY(SV* obj) {
-  GHashTable* h = (GHashTable*)SvIV(SvRV(obj));
+  Tie_GHash *t = (Tie_GHash*)SvIV(SvRV(obj));
   CLEAR(obj);
-  g_hash_table_destroy(h);
+  g_hash_table_destroy(t->h);
+  if (t->keys) g_free(t->keys);
+  g_free(t);
 }
+
+static void get_a_hash_key(gpointer key, gpointer value, gpointer user_data) {
+  Tie_GHash *t = user_data;
+  t->keys[t->key_index++] = key;
+}
+
+char* NEXTKEY(SV *obj, char *lastkey) {
+   Tie_GHash *t = (Tie_GHash*)SvIV(SvRV(obj));
+   char *key;
+
+   if (t->key_index >= t->nkeys) {
+       g_free(t->keys);
+       return t->keys = NULL;
+   }
+
+   return t->keys[t->key_index++];
+}
+
+char* FIRSTKEY(SV *obj) {
+   Tie_GHash *t = (Tie_GHash*)SvIV(SvRV(obj));
+
+   if (t->keys) g_free(t->keys);
+   t->nkeys = size(obj);
+   t->keys =  g_malloc(t->nkeys * sizeof(char *));
+   t->key_index = 0;
+   g_hash_table_foreach(t->h, get_a_hash_key, t);
+   t->key_index = 0;
+
+   return NEXTKEY(obj, NULL);
+}
+
 
 
 __END__

@@ -31,10 +31,6 @@ NOTES
     was created during Brian Ingerson's Inline talk at YAPC::NorthAmerica
     2001 when he asked me to code something fun using Inline, so blame him.
 
-BUGS
-    FIRSTKEY and NEXTKEY are currently unimplemented, which means that
-    "foreach" will not work over such a hash. Patches welcome.
-
 AUTHOR
     Leon Brocard <acme@astray.com>
 
